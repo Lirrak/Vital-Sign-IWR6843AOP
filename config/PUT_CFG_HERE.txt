@@ -1,0 +1,11 @@
+Copy TI's official config here, for example:
+
+vital_signs_AOP_2m.cfg
+or
+vital_signs_AOP_6m.cfg
+
+Typical locations:
+- Radar Toolbox 2.x:
+  radar_toolbox_2_20_00_05/source/ti/examples/Medical/Vital_Signs_With_People_Tracking/chirp_configs/
+- Industrial Toolbox 4.12.1:
+  mmwave_industrial_toolbox_4_12_1/labs/Vital_Signs/Vital_Signs_With_People_Tracking/chirp_configs/
