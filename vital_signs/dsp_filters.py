@@ -38,18 +38,20 @@ class KalmanFilter1D:
         self.P = P0  # Estimated error covariance
         self.initialized = False
 
-    def update(self, measurement: float) -> float:
+    def update(self, measurement: float, R_dynamic: Optional[float] = None) -> float:
         if not self.initialized:
             self.x = measurement
             self.P = 1.0
             self.initialized = True
             return self.x
 
+        current_R = R_dynamic if R_dynamic is not None else self.R
+
         # Prediction
         self.P = self.P + self.Q
 
         # Correction (Measurement Update)
-        K = self.P / (self.P + self.R)
+        K = self.P / (self.P + current_R)
         self.x = self.x + K * (measurement - self.x)
         self.P = (1.0 - K) * self.P
 
@@ -66,6 +68,7 @@ class VitalSignStabilizer:
 
     Includes state freezing to hold the last stable estimate when radar packets
     report invalid metrics (e.g. out of range, body movement artifacts).
+    Also supports dynamic quality-aware Kalman measurement noise scaling.
     """
 
     def __init__(
@@ -92,19 +95,41 @@ class VitalSignStabilizer:
         hr_valid: bool,
         br_raw: float,
         br_valid: bool,
+        hr_conf: float = 1.0,
+        br_deviation: float = 0.0,
     ) -> Tuple[float, float]:
-        # Process Heart Rate
+        # 1. Process Heart Rate with quality-aware R_dynamic scaling
         if hr_valid:
+            # Map hr_conf (spectral Peak-to-Average Ratio) to dynamic Kalman measurement covariance R
+            # High confidence (PAR >= 5.0) -> small R (trust measurements)
+            # Low confidence (PAR <= 2.0) -> large R (trust prediction/history)
+            if hr_conf >= 5.0:
+                hr_R_dyn = self.hr_kalman.R * 0.15
+            elif hr_conf <= 2.0:
+                hr_R_dyn = self.hr_kalman.R * 12.0
+            else:
+                # Smooth interpolation between factors 12.0 and 0.15
+                t = (hr_conf - 2.0) / 3.0
+                hr_R_dyn = self.hr_kalman.R * (12.0 - 11.85 * t)
+
             median_hr = self.hr_median.update(hr_raw)
-            smoothed_hr = self.hr_kalman.update(median_hr)
+            smoothed_hr = self.hr_kalman.update(median_hr, R_dynamic=hr_R_dyn)
             self.last_valid_hr = smoothed_hr
         else:
             smoothed_hr = self.last_valid_hr if self.last_valid_hr is not None else hr_raw
 
-        # Process Breathing Rate
+        # 2. Process Breathing Rate with breathing_deviation quality adaptation
         if br_valid:
+            # High breathing deviation indicates possible micro-motions or irregular breathing.
+            # Scale br_R up if deviation is high to smooth out sudden irregular breathing spikes.
+            # Normal deviation values are typically < 0.1
+            if br_deviation > 0.15:
+                br_R_dyn = self.br_kalman.R * 5.0
+            else:
+                br_R_dyn = self.br_kalman.R
+
             median_br = self.br_median.update(br_raw)
-            smoothed_br = self.br_kalman.update(median_br)
+            smoothed_br = self.br_kalman.update(median_br, R_dynamic=br_R_dyn)
             self.last_valid_br = smoothed_br
         else:
             smoothed_br = self.last_valid_br if self.last_valid_br is not None else br_raw

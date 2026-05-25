@@ -33,13 +33,18 @@ Chào mừng bạn! Theo chỉ thị của bạn về việc lưu trữ **mỗi 
 
 ### 6. 📄 [Phiên bản v1.5.0 (Bộ lọc Range Bin thông minh & Khử đứt gãy pha)](file:///c:/Users/Lirrak/Documents/Born%20Again/Radar%20Project/IWR6843AOP/Vital%20Sign/doc/implementation_plan_v1.5.md)
 * **Tên file**: `implementation_plan_v1.5.md`
-* **Nội dung**: Tích hợp Bộ lọc Range Bin thông minh (Smart Range Bin Gate) cự ly `[2, 20]` (0.5m - 5.0m) để loại bỏ nhiễu range bin cực xa (49, 53, 66) và tự động reset (xóa sạch) bộ đệm dạng sóng khi đổi range bin đo để triệt tiêu hoàn toàn hiện tượng đứt gãy pha.
+* **Nội dung**: Tích hợp Bộ lọc Range Bin thông minh (Smart Range Bin Gate) cự ly `[2, 20]` (0.5m - 5.0m) để loại bỏ nhiễu range bin cực xa (49, 53, 66) và tự động reset (xóa sạch) bộ đệm dạng sóng khi đổi range bin đo để triệt tiêu hoàn tượng đứt gãy pha.
 * **Trạng thái**: **Đã triển khai**.
 
 ### 7. 📄 [Phiên bản v1.5.1 (Hiệu chỉnh Smart Range Bin Gate)](file:///c:/Users/Lirrak/Documents/Born%20Again/Radar%20Project/IWR6843AOP/Vital%20Sign/doc/implementation_plan_v1.5.1.md)
 * **Tên file**: `implementation_plan_v1.5.1.md`
 * **Nội dung**: Hiệu chỉnh dải kiểm duyệt Range bin thông minh từ `[2, 20]` thành `[2, 50]` (tương ứng tối đa 6.0m theo độ phân giải mịn của Tracker) để kích hoạt cơ chế đồng bộ cự ly động thực tế của radar mmWave.
-* **Trạng thái**: **Lên kế hoạch (Đang chờ duyệt)**.
+* **Trạng thái**: **Lên kế hoạch**.
+
+### 8. 📄 [Phiên bản v2.0.0 (Kiến trúc DSP đa tầng khử hài hô hấp thích ứng)](file:///c:/Users/Lirrak/Documents/Born%20Again/Radar%20Project/IWR6843AOP/Vital%20Sign/doc/implementation_plan_v2.0.md)
+* **Tên file**: `implementation_plan_v2.0.md`
+* **Nội dung**: Triển khai bộ lọc thích ứng RLS đa hài (Multi-Harmonic RLS), toán tử vi phân pha, chuẩn hóa căn bậc hai và mặt nạ che hài thở NDTFT thích ứng nhằm giải quyết triệt để lỗi xuyên nhiễu hài thở vào nhịp tim.
+* **Trạng thái**: **Lên kế hoạch (Mới đề xuất)**.
 
 ---
 
@@ -54,6 +59,7 @@ Chào mừng bạn! Theo chỉ thị của bạn về việc lưu trữ **mỗi 
 | **v1.4.0** | 2026-05-22 | Antigravity AI | [implementation_plan_v1.4.md](file:///c:/Users/Lirrak/Documents/Born%20Again/Radar%20Project/IWR6843AOP/Vital%20Sign/doc/implementation_plan_v1.4.md) | **Đã triển khai** |
 | **v1.5.0** | 2026-05-22 | Antigravity AI | [implementation_plan_v1.5.md](file:///c:/Users/Lirrak/Documents/Born%20Again/Radar%20Project/IWR6843AOP/Vital%20Sign/doc/implementation_plan_v1.5.md) | **Đã triển khai** |
 | **v1.5.1** | 2026-05-22 | Antigravity AI | [implementation_plan_v1.5.1.md](file:///c:/Users/Lirrak/Documents/Born%20Again/Radar%20Project/IWR6843AOP/Vital%20Sign/doc/implementation_plan_v1.5.1.md) | **Lên kế hoạch** |
+| **v2.0.0** | 2026-05-25 | Antigravity AI | [implementation_plan_v2.0.md](file:///c:/Users/Lirrak/Documents/Born%20Again/Radar%20Project/IWR6843AOP/Vital%20Sign/doc/implementation_plan_v2.0.md) | **Lên kế hoạch** |
 
 ---
 

@@ -56,6 +56,7 @@ class VitalSignMonitorApp(tk.Tk):
         self.status_var = tk.StringVar(value="Idle")
         self.hr_var = tk.StringVar(value="Heart: -- bpm")
         self.br_var = tk.StringVar(value="Breath: -- bpm")
+        self.confidence_var = tk.StringVar(value="Conf: --")
         self.target_var = tk.StringVar(value="Target: --")
 
         self._build_ui()
@@ -109,6 +110,7 @@ class VitalSignMonitorApp(tk.Tk):
         gauges.pack(fill=tk.X)
         ttk.Label(gauges, textvariable=self.hr_var, font=("Segoe UI", 18, "bold")).pack(side=tk.LEFT, padx=(0, 25))
         ttk.Label(gauges, textvariable=self.br_var, font=("Segoe UI", 18, "bold")).pack(side=tk.LEFT, padx=(0, 25))
+        ttk.Label(gauges, textvariable=self.confidence_var, font=("Segoe UI", 18, "bold")).pack(side=tk.LEFT, padx=(0, 25))
         ttk.Label(gauges, textvariable=self.target_var, font=("Segoe UI", 12)).pack(side=tk.LEFT)
 
         chart_frame = ttk.Frame(root)
@@ -212,6 +214,7 @@ class VitalSignMonitorApp(tk.Tk):
         self.last_sample = None
         self.hr_var.set("Heart: -- bpm")
         self.br_var.set("Breath: -- bpm")
+        self.confidence_var.set("Conf: --")
         self.target_var.set("Target: --")
         self._redraw_plot()
 
@@ -339,6 +342,7 @@ class VitalSignMonitorApp(tk.Tk):
                     fs_actual = 1.0 / mean_dt
 
         # 4. Estimate HR/BR using advanced secondary DSP if enough history is accumulated
+        hr_conf = 1.0
         if len(self.accumulated_heart_waveform) >= 64:
             heart_arr = np.array(self.accumulated_heart_waveform)
             breath_arr = np.array(self.accumulated_breath_waveform)
@@ -347,7 +351,7 @@ class VitalSignMonitorApp(tk.Tk):
             t_arr = np.array(self.accumulated_timestamps)
             t_history = t_arr - t_arr[0]
             
-            hr_raw = self.advanced_dsp.filter_and_estimate_hr(heart_arr, breath_arr, fs_actual, t_history)
+            hr_raw, hr_conf = self.advanced_dsp.filter_and_estimate_hr(heart_arr, breath_arr, fs_actual, t_history)
             br_raw = self.advanced_dsp.estimate_br(breath_arr, fs_actual, t_history)
         else:
             # Fallback to chip raw estimates during buffer warmup
@@ -360,6 +364,8 @@ class VitalSignMonitorApp(tk.Tk):
             hr_valid=sample.heart_rate_valid,
             br_raw=br_raw,
             br_valid=sample.breathing_rate_valid,
+            hr_conf=hr_conf,
+            br_deviation=sample.breathing_deviation,
         )
 
         self.history_t.append(t)
@@ -385,6 +391,7 @@ class VitalSignMonitorApp(tk.Tk):
             br_text += " *"
         self.hr_var.set(hr_text)
         self.br_var.set(br_text)
+        self.confidence_var.set(f"Conf: {hr_conf:.1f} PAR")
         
         # Display extra info in the target bar including the buffer warming state
         warm_status = ""
