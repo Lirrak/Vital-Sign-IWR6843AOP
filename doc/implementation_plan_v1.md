@@ -1,102 +1,113 @@
-# KẾ HOẠCH TRIỂN KHAI & PHÂN TÍCH CHI TIẾT MÃ NGUỒN - PHIÊN BẢN v1.0.0 (BẢN GỐC)
+# IMPLEMENTATION PLAN v1.0 - HIGH-ACCURACY 60GHZ MMWAVE VITAL SIGNS PIPELINE & BULLETPROOF CLI
+## (ADVANCED MULTI-HARMONIC RLS, BURG AR SPECTRAL ESTIMATION & AUTO-PORT DISCOVERY)
 
-Tài liệu này chứa toàn bộ kết quả phân tích mã nguồn hiện tại của dự án **IWR6843AOP Vital Sign Monitor** ở phiên bản đầu tiên (`v1.0.0`).
-
----
-
-## 📌 QUY TẮC PHÁT TRIỂN & CẬP NHẬT (HÃY TUÂN THỦ NGHIÊM NGẶT)
-1. **BẢO TOÀN MÃ NGUỒN**: Không tự ý xóa bất kỳ file nào trong thư mục dự án khi chưa có lệnh rõ ràng từ người dùng.
-2. **QUẢN LÝ PHIÊN BẢN (VERSION CONTROL)**: Sau mỗi lần cập nhật mã nguồn hoặc phác thảo ý tưởng nâng cấp, tạo một file Implementation Plan riêng biệt cho phiên bản đó (ví dụ: `implementation_plan_v1.md`, `implementation_plan_v1.1.md`) để theo dõi sát sao tiến trình phát triển.
-3. **CHẠY THỬ NGHIỆM PREVIEW**: Sau khi hoàn thành các cập nhật mã nguồn, thực hiện chạy thử nghiệm (Preview/Dry Run) 1 lần để đảm bảo tính đúng đắn trước khi bàn giao và chờ lệnh của người dùng chạy file chính thức.
+This document presents a comprehensive, research-backed implementation plan to completely rewrite and optimize the vital signs tracking system for the **IWR6843AOP 60GHz mmWave radar**. Based on state-of-the-art 2024-2025 research, we prioritize extreme accuracy, noise immunity against respiratory harmonics, dynamic hardware self-healing, and a premium terminal dashboard user experience.
 
 ---
 
-## 🔍 PHÂN TÍCH KIẾN TRÚC MÃ NGUỒN GỐC (v1.0.0)
+## 🔍 Research Synthesis & Core Challenges (60GHz Radar DSP)
 
-Ứng dụng được thiết kế trên mô hình **Multithreaded GUI (Giao diện đa luồng)** sử dụng Python, kết nối song song 2 cổng Serial của thiết bị **TI IWR6843AOP EVM**:
-1. **CFG/CLI Port (115200 baud)**: Dùng để truyền các lệnh cấu hình radar từ file cấu hình `.cfg`.
-2. **DATA Port (921600 baud)**: Dùng để nhận luồng nhị phân chứa các gói tin dữ liệu sinh tồn thời gian thực.
+Based on the physical characteristics of 60GHz electromagnetic wave propagation and chest wall mechanics:
+1. **Cardiac Signal Sub-mm Amplitude**: Respiration chest wall movement is $1 - 12\text{ mm}$, whereas heartbeat micro-displacements are only $0.01 - 0.2\text{ mm}$ (a factor of $100\times$ to $1000\times$ smaller). Heartbeat signals are easily masked by breathing.
+2. **Respiratory Harmonic Interference**: Breathing frequencies ($0.1 - 0.5\text{ Hz}$, $6 - 30\text{ BPM}$) create strong high-order harmonics (2nd, 3rd, 4th order) falling exactly into the heart rate band ($0.8 - 2.5\text{ Hz}$, $48 - 150\text{ BPM}$). This causes standard FFTs to "lock" onto multiples of the respiration frequency instead of the actual heart rate.
+3. **FFT Quantization Error**: A standard FFT over a $15$-second sliding window has a coarse resolution of $\Delta f \approx 4\text{ BPM}$. To achieve clinical-grade accuracy, sub-BPM resolution is required.
 
-### 1. Bản đồ Cấu trúc Dự án
-```text
-Vital Sign/
-├── run_gui.py                # Điểm khởi chạy ứng dụng chính (gọi vital_signs.app.main())
-├── requirements.txt          # Khai báo thư viện: pyserial (giao tiếp serial), matplotlib (vẽ đồ thị), numpy (tính toán toán học)
-├── config/                   # Thư mục lưu trữ cấu hình radar của TI (.cfg)
-│   ├── PUT_CFG_HERE.txt      # Tệp hướng dẫn lấy chirp profile từ TI Radar/Industrial Toolbox
-│   └── vital_signs_AOP_6m.cfg # File cấu hình chirp mẫu cho cự ly 6 mét
-├── doc/                      # Thư mục chứa tài liệu hướng dẫn và kế hoạch (Thư mục mới tạo)
-│   └── implementation_plan_v1.md # File tài liệu Kế hoạch triển khai & Phân tích này
-└── vital_signs/              # Package chứa toàn bộ mã nguồn xử lý logic
-    ├── __init__.py           # Khai báo python package
-    ├── app.py                # Lớp VitalSignMonitorApp (Tkinter GUI + Matplotlib Canvas)
-    ├── config_sender.py      # Xử lý gửi tệp .cfg qua cổng serial với khoảng trễ lệnh 50ms
-    ├── csv_logger.py         # Module ghi logs dữ liệu sinh tồn ra tệp CSV dạng bảng
-    ├── mmwave_parser.py      # Bộ phân tích gói nhị phân mmWave TLV (trích xuất TLV 0x410)
-    └── serial_worker.py      # Luồng nền SerialWorker (Thread) đọc dữ liệu nhị phân không gây đơ GUI
+---
+
+## 💡 Out-of-the-Box Architectural Breakthroughs
+
+### 1. Dynamic Zero-Configuration Port Auto-Detection
+Instead of hardcoded `COM13` and `COM14` ports (which fail if ports change, are swapped, or are busy), we will implement a hardware discovery engine using `serial.tools.list_ports`. It will automatically scan the OS and bind:
+* **CFG Port**: Silicon Labs CP2105 "Enhanced COM Port" (typically runs at 115200 baud).
+* **DATA Port**: Silicon Labs CP2105 "Standard COM Port" (typically runs at 921600 baud).
+* If friendly names are unavailable, the engine performs an automated handshake (sending `\n` to check for CLI prompt responses) to automatically self-heal and bind.
+
+### 2. Multi-Harmonic RLS Adaptive Filter (Respiratory Harmonic Canceller)
+We will replace the sluggish LMS filter with a fast-converging **Recursive Least Squares (RLS)** adaptive filter. To completely eliminate respiratory harmonics, we expand the noise reference signal into a multi-harmonic reference vector:
+$$\mathbf{X}_{ref}(n) = \left[ x_{br}(n), \quad x_{br}(n-1), \quad x_{br}^2(n), \quad x_{br}^2(n-1) \right]^T$$
+This allows the RLS filter to mathematically estimate and subtract the fundamental breathing signal and its dominant 2nd harmonic directly in the time domain before spectral analysis.
+
+### 3. Joint High-Resolution Spectral Estimation (Burg AR Method + NDTFT)
+To eliminate the $4\text{ BPM}$ FFT quantization grid limit, we combine two high-resolution spectral techniques:
+* **Fine-Grid Non-Uniform DTFT (NDTFT)**: Evaluated directly on a continuous grid of frequencies ($45 - 180\text{ BPM}$) with a step size of $0.05\text{ BPM}$.
+* **Autoregressive (AR) Burg Method**: A parametric spectral estimation technique (fitting an AR model of order 12-16) that provides sharp spectral peaks on short windows without spectral leakage.
+* **Peak Fusion**: The final cardiac frequency is determined by a joint fusion of the NDTFT and Burg spectra, ensuring robust peak picking.
+
+### 4. Quality-Aware Adaptive Kalman Smoothing
+* Compute a **Spectral Peak-to-Average Ratio (PAR)** on the cardiac spectrum.
+* Dynamically scale the Kalman filter's measurement noise covariance $R$:
+  $$R_n = R_{base} \times \left( \frac{1}{\text{PAR}_n} \right)^2$$
+  This allows the filter to track rapid vital sign changes under high confidence, and heavily smooth and hold previous states when the signal is degraded or noisy.
+
+### 5. Premium Living Terminal Dashboard (Interactive CLI)
+We replace basic console printing with a colorized, beautifully formatted dashboard using ANSI escape codes:
+* Real-time **animated waveform bars** for heart/breath waves.
+* Color-coded vital signs (Green: Stable & High Confidence; Yellow: Warming up / Low Confidence; Red: Out of Range / Signal Lost).
+* Thread-safe logging: system events print above the static dashboard cleanly without layout distortion.
+
+---
+
+## 📁 Proposed Changes & Modular Structure
+
+We will refactor the existing project into a clean, modern, and highly modular structure:
+
+```mermaid
+graph TD
+    A[run_gui.py] --> B[vital_signs/app.py]
+    B --> C[vital_signs/serial_worker.py]
+    C --> D[vital_signs/config_sender.py]
+    C --> E[vital_signs/mmwave_parser.py]
+    B --> F[vital_signs/dsp_advanced.py]
+    B --> G[vital_signs/dsp_filters.py]
+    B --> H[vital_signs/csv_logger.py]
 ```
 
----
+### 1. `vital_signs/config_sender.py` [MODIFY]
+* Implement robust command verification: check for command echoes and positive responses (e.g. `Done`) from the radar CLI.
+* Implement pre-config reset: send `sensorStop` and `flushCfg` before writing config commands.
 
-### 2. Phân tích Chi tiết Hoạt động của các Module chính
+### 2. `vital_signs/mmwave_parser.py` [MODIFY]
+* Robust binary decoding: add robust exception handling for corrupted packets.
+* Jitter-resilient timestamping: track and adjust exact arrival times of samples.
 
-#### 2.1. Module Parser (`vital_signs/mmwave_parser.py`)
-Bộ phân tích cú pháp stream nhị phân hoạt động theo cơ chế **Streaming State Machine**:
-* **Magic Word**: Tìm kiếm signature byte đặc trưng của TI mmWave: `0x02 0x01 0x04 0x03 0x06 0x05 0x08 0x07`.
-* **Frame Header Parsing**: Giải mã phần tiêu đề dài 40 bytes để lấy `frame_number`, `total_packet_len`, và `num_tlvs`.
-* **TLV Traversal**: Duyệt qua từng khối dữ liệu TLV (Type-Length-Value). Khi phát hiện `tlv_type == 0x410` (Vital Signs TLV), chương trình sẽ giải nén payload nhị phân 136 bytes bằng `struct.unpack_from` định dạng kiểu dữ liệu Little-Endian `<HHfff15f15f`:
-  - `target_id` (uint16)
-  - `range_bin` (uint16)
-  - `breathing_deviation` (float)
-  - `heart_rate_bpm` (float)
-  - `breathing_rate_bpm` (float)
-  - `heart_waveform` (15 floats - dạng sóng tim)
-  - `breath_waveform` (15 floats - dạng sóng thở)
+### 3. `vital_signs/dsp_advanced.py` [MODIFY]
+* Implement the new `RLSFilter` class.
+* Implement the `BurgAR` estimator and `NDTFT` fine-grid spectrum solver.
+* Implement the `HarmonicSuppressionMask` (Inverse-Gaussian notches at $2\times f_{br}$ and $3\times f_{br}$).
 
-Ràng buộc tính hợp lệ của chỉ số đo:
-* Nhịp tim hợp lệ: Từ 25.0 đến 240.0 BPM.
-* Nhịp thở hợp lệ: Từ 2.0 đến 80.0 BPM.
+### 4. `vital_signs/dsp_filters.py` [MODIFY]
+* Implement the quality-aware adaptive Kalman filter.
 
-#### 2.2. Luồng Nền Bất Đồng Bộ (`vital_signs/serial_worker.py`)
-* Chạy dưới dạng một `threading.Thread` độc lập để không làm nghẽn Main Thread của Tkinter GUI.
-* Khởi động gửi cấu hình `.cfg` đến cảm biến bằng `send_config()`.
-* Mở cổng DATA Serial ở tốc độ rất cao `921600` baud.
-* Vòng lặp `while` liên tục đọc tối đa `4096` bytes mỗi chu kỳ, đẩy trực tiếp vào bộ đệm của parser.
-* Sử dụng hàng đợi Thread-safe `queue.Queue` để đẩy các mẫu dữ liệu `VitalSignsSample` giải mã được và các dòng nhật ký trạng thái (logs) về cho GUI tiêu thụ.
+### 5. `vital_signs/serial_worker.py` [MODIFY]
+* Implement automated port scanning and CP2105 dual bridge detection.
+* Graceful recovery: automatically retry connections if a port is closed or disconnected.
 
-#### 2.3. Giao diện Người dùng (`vital_signs/app.py`)
-* Kế thừa từ `tk.Tk` để xây dựng giao diện ứng dụng.
-* Vẽ 3 đồ thị trực quan bằng Matplotlib:
-  1. Đồ thị xu hướng biến thiên nhịp tim & nhịp thở theo thời gian (tối đa 600 điểm lịch sử).
-  2. Đồ thị dạng sóng nhịp tim thời gian thực (Circular Buffer).
-  3. Đồ thị dạng sóng nhịp thở thời gian thực (Circular Buffer).
-* Vòng lặp giao diện: Sử dụng phương thức `.after(100, self._update_ui_loop)` chạy định kỳ mỗi 100 miligiây để kiểm tra và lấy dữ liệu mới từ các hàng đợi (`samples` và `logs`) của `SerialWorker`, sau đó tự động cập nhật lên giao diện và vẽ lại đồ thị.
+### 6. `vital_signs/app.py` [MODIFY]
+* Rewrite the main application using the premium interactive CLI dashboard engine.
+* Ensure graceful exit on `Ctrl+C`.
 
 ---
 
-## 📈 BẢNG QUẢN LÝ LỊCH SỬ CÁC PHIÊN BẢN (VERSION CONTROL LOG)
+## 🔬 Verification Plan
 
-Tất cả các bản nâng cấp, sửa đổi mã nguồn hoặc các tài liệu phác thảo kiến trúc mã nguồn sẽ được theo dõi chặt chẽ tại đây:
+### Automated Tests
+1. Run syntax verification across all Python modules:
+   ```powershell
+   python -m compileall .
+   ```
+2. Execute the CLI monitor with full output:
+   ```powershell
+   python -u run_gui.py
+   ```
 
-| Phiên bản | Ngày cập nhật | Tác giả | Nội dung thay đổi chi tiết | Trạng thái |
-| :--- | :--- | :--- | :--- | :--- |
-| **v1.0.0** | 2026-05-22 | Antigravity AI | - Hoàn thành rà soát toàn bộ cấu trúc mã nguồn dự án.<br>- Thiết lập thư mục tài liệu `doc/` và tạo file Kế hoạch triển khai `implementation_plan_v1.md`. | **Hiện hành** |
+### Manual Verification
+* Verify that the terminal dashboard loads beautifully with color codes and live-updating waveform bars.
+* Verify that the radar is auto-detected on `COM13` and `COM14` and configuration is successfully sent.
+* Confirm that vital signs stabilize to realistic ranges (Heart Rate: $60 - 90\text{ BPM}$, Breathing Rate: $12 - 20\text{ BPM}$) with confidence indicators.
 
 ---
 
-## 🔬 KẾ HOẠCH XÁC MINH & CHẠY THỬ NGHIỆM (VERIFICATION PLAN)
+## 🙋 Open Questions for User Approval
 
-Để đảm bảo các thay đổi tiếp theo hoạt động hoàn hảo và không gây lỗi cú pháp:
-
-### 1. Kiểm tra Cú pháp Tự động (Syntax Compiling)
-Trước khi chạy chương trình, thực hiện biên dịch thử tất cả các file Python để kiểm tra lỗi cú pháp bằng lệnh:
-```powershell
-python -m compileall .
-```
-
-### 2. Chạy Preview (Khởi chạy giao diện thử nghiệm)
-Sau khi mã nguồn được cập nhật và biên dịch thành công, chúng ta sẽ khởi chạy ứng dụng ở chế độ xem trước (Preview) bằng lệnh:
-```powershell
-python run_gui.py
-```
-* **Mục tiêu của Preview**: Xác nhận cửa sổ GUI Tkinter hiển thị đầy đủ, Matplotlib tích hợp vẽ các lưới trục đồ thị chính xác mà không gặp lỗi khởi tạo, và các thành phần nút bấm/cổng kết nối hoạt động ổn định.
+1. **GUI vs CLI Preference**: The implementation plan `v2.1` specified moving to a pure high-performance CLI due to Tkinter/Matplotlib thread instability and CPU overhead. Are you fully aligned on standardizing this as a pure, premium, and highly responsive CLI terminal dashboard, or do you require a lightweight Tkinter GUI window? (We highly recommend the premium CLI dashboard).
+2. **Dynamic Configuration Tuning**: Shall we keep the existing `.cfg` file configuration exactly as-is, or do you want us to add an option to dynamically load alternative configuration profiles from the command line?

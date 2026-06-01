@@ -5,7 +5,6 @@ import struct
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-
 MAGIC_WORD = b"\x02\x01\x04\x03\x06\x05\x08\x07"
 HEADER_LEN = 40
 TLV_HEADER_LEN = 8
@@ -63,6 +62,14 @@ class MmwavePacketParser:
         self.bytes_dropped = 0
         self.last_error: str = ""
 
+    def reset(self) -> None:
+        """Resets the internal buffer and stats."""
+        self.buffer.clear()
+        self.frames_seen = 0
+        self.vital_tlvs_seen = 0
+        self.bytes_dropped = 0
+        self.last_error = ""
+
     def append(self, data: bytes, timestamp_s: float) -> List[VitalSignsSample]:
         if not data:
             return []
@@ -72,14 +79,14 @@ class MmwavePacketParser:
             drop_len = len(self.buffer) - self.max_buffer_size
             del self.buffer[:drop_len]
             self.bytes_dropped += drop_len
-            self.last_error = f"Buffer too large; dropped {drop_len} bytes"
+            self.last_error = f"Buffer limit exceeded; dropped {drop_len} bytes"
 
         samples: List[VitalSignsSample] = []
 
         while True:
             magic_index = self.buffer.find(MAGIC_WORD)
             if magic_index < 0:
-                # Keep a small tail in case the magic word is split between reads.
+                # Keep only a small tail that could be part of a split magic word
                 keep = len(MAGIC_WORD) - 1
                 if len(self.buffer) > keep:
                     self.bytes_dropped += len(self.buffer) - keep
@@ -87,6 +94,7 @@ class MmwavePacketParser:
                 return samples
 
             if magic_index > 0:
+                # Discard everything before the magic word
                 self.bytes_dropped += magic_index
                 del self.buffer[:magic_index]
 
@@ -94,30 +102,35 @@ class MmwavePacketParser:
                 return samples
 
             try:
+                # Unpack the standard 40-byte TI mmWave Frame Header
                 header_values = struct.unpack_from("<8I", self.buffer, 8)
             except struct.error as exc:
-                self.last_error = f"Header unpack error: {exc}"
+                self.last_error = f"Header unpacking error: {exc}"
                 return samples
 
             header = FrameHeader(*header_values)
 
-            # Basic sanity checks. Wrong baud rate or wrong firmware usually fails here.
+            # Sanity check the packet length
             if header.total_packet_len < HEADER_LEN or header.total_packet_len > 200_000:
-                self.last_error = (
-                    f"Invalid packet length {header.total_packet_len}; "
-                    "resyncing on next byte"
-                )
-                self.bytes_dropped += 1
-                del self.buffer[0]
+                self.last_error = f"Invalid packet length: {header.total_packet_len}. Re-aligning."
+                self.bytes_dropped += len(MAGIC_WORD)
+                del self.buffer[:len(MAGIC_WORD)]
                 continue
 
             if len(self.buffer) < header.total_packet_len:
+                # Wait for the complete packet to arrive
                 return samples
 
+            # Extract the complete packet and clear it from the buffer
             packet = bytes(self.buffer[: header.total_packet_len])
             del self.buffer[: header.total_packet_len]
             self.frames_seen += 1
-            samples.extend(self._parse_packet(packet, header, timestamp_s))
+
+            try:
+                parsed_samples = self._parse_packet(packet, header, timestamp_s)
+                samples.extend(parsed_samples)
+            except Exception as e:
+                self.last_error = f"Packet parsing error: {e}"
 
     def _parse_packet(
         self, packet: bytes, header: FrameHeader, timestamp_s: float
@@ -127,17 +140,20 @@ class MmwavePacketParser:
 
         for _ in range(header.num_tlvs):
             if offset + TLV_HEADER_LEN > len(packet):
-                self.last_error = "TLV header exceeds packet length"
+                self.last_error = "TLV header bounds exceeded"
                 break
 
-            tlv_type, tlv_length = struct.unpack_from("<II", packet, offset)
+            try:
+                tlv_type, tlv_length = struct.unpack_from("<II", packet, offset)
+            except struct.error as exc:
+                self.last_error = f"TLV header unpack error: {exc}"
+                break
 
-            # Most mmWave demos use TLV length as payload length. Some user-modified
-            # firmware may use total TLV length, so this block accepts both.
             payload_start = offset + TLV_HEADER_LEN
             payload_end_payload_len = payload_start + tlv_length
             payload_end_total_len = offset + tlv_length
 
+            # Accept both payload length and total TLV length formats
             if payload_end_payload_len <= len(packet):
                 payload = packet[payload_start:payload_end_payload_len]
                 next_offset = payload_end_payload_len
@@ -146,7 +162,7 @@ class MmwavePacketParser:
                 next_offset = payload_end_total_len
             else:
                 self.last_error = (
-                    f"TLV length invalid: type=0x{tlv_type:X}, length={tlv_length}, "
+                    f"Malformed TLV bounds: type=0x{tlv_type:X}, len={tlv_length}, "
                     f"remaining={len(packet) - offset}"
                 )
                 break
@@ -166,28 +182,32 @@ class MmwavePacketParser:
     ) -> Optional[VitalSignsSample]:
         if len(payload) < VITAL_SIGNS_PAYLOAD_LEN:
             self.last_error = (
-                f"Vital Signs TLV too short: {len(payload)} bytes, "
-                f"expected at least {VITAL_SIGNS_PAYLOAD_LEN}"
+                f"Vital Signs TLV size mismatch: {len(payload)} bytes, "
+                f"expected >= {VITAL_SIGNS_PAYLOAD_LEN}"
             )
             return None
 
-        values = VITAL_SIGNS_STRUCT.unpack_from(payload, 0)
-        target_id = int(values[0])
-        range_bin = int(values[1])
-        breathing_deviation = float(values[2])
-        heart_rate_bpm = float(values[3])
-        breathing_rate_bpm = float(values[4])
-        heart_waveform = [float(v) for v in values[5:20]]
-        breath_waveform = [float(v) for v in values[20:35]]
+        try:
+            values = VITAL_SIGNS_STRUCT.unpack_from(payload, 0)
+            target_id = int(values[0])
+            range_bin = int(values[1])
+            breathing_deviation = float(values[2])
+            heart_rate_bpm = float(values[3])
+            breathing_rate_bpm = float(values[4])
+            heart_waveform = [float(v) for v in values[5:20]]
+            breath_waveform = [float(v) for v in values[20:35]]
 
-        return VitalSignsSample(
-            timestamp_s=timestamp_s,
-            frame_number=header.frame_number,
-            target_id=target_id,
-            range_bin=range_bin,
-            breathing_deviation=breathing_deviation,
-            heart_rate_bpm=heart_rate_bpm,
-            breathing_rate_bpm=breathing_rate_bpm,
-            heart_waveform=heart_waveform,
-            breath_waveform=breath_waveform,
-        )
+            return VitalSignsSample(
+                timestamp_s=timestamp_s,
+                frame_number=header.frame_number,
+                target_id=target_id,
+                range_bin=range_bin,
+                breathing_deviation=breathing_deviation,
+                heart_rate_bpm=heart_rate_bpm,
+                breathing_rate_bpm=breathing_rate_bpm,
+                heart_waveform=heart_waveform,
+                breath_waveform=breath_waveform,
+            )
+        except Exception as exc:
+            self.last_error = f"TLV structural decode failure: {exc}"
+            return None

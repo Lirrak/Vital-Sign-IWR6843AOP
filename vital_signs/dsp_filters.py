@@ -4,7 +4,7 @@ from typing import List, Optional, Tuple
 
 
 class MovingMedianFilter:
-    """Sliding window median filter to eliminate spike noise (impulses)."""
+    """Sliding window median filter to eliminate impulse/spike noise."""
 
     def __init__(self, window_size: int) -> None:
         self.window_size = window_size
@@ -47,10 +47,10 @@ class KalmanFilter1D:
 
         current_R = R_dynamic if R_dynamic is not None else self.R
 
-        # Prediction
+        # 1. Predict
         self.P = self.P + self.Q
 
-        # Correction (Measurement Update)
+        # 2. Correct (Measurement Update)
         K = self.P / (self.P + current_R)
         self.x = self.x + K * (measurement - self.x)
         self.P = (1.0 - K) * self.P
@@ -98,19 +98,27 @@ class VitalSignStabilizer:
         hr_conf: float = 1.0,
         br_deviation: float = 0.0,
     ) -> Tuple[float, float]:
-        # 1. Process Heart Rate with quality-aware R_dynamic scaling
+        """Stabilizes raw heart and breathing rates using dual-stage adaptive filtering.
+
+        Args:
+            hr_raw: Raw heart rate (BPM).
+            hr_valid: Validity flag from parser.
+            br_raw: Raw breathing rate (BPM).
+            br_valid: Validity flag from parser.
+            hr_conf: Spectral confidence/PAR (for heart rate Kalman adaptation).
+            br_deviation: Breath deviation (for breathing rate Kalman adaptation).
+
+        Returns:
+            Tuple of stabilized (Heart Rate, Breathing Rate) in BPM.
+        """
+        # 1. Process Heart Rate
         if hr_valid:
-            # Map hr_conf (spectral Peak-to-Average Ratio) to dynamic Kalman measurement covariance R
-            # High confidence (PAR >= 5.0) -> small R (trust measurements)
-            # Low confidence (PAR <= 2.0) -> large R (trust prediction/history)
-            if hr_conf >= 5.0:
-                hr_R_dyn = self.hr_kalman.R * 0.15
-            elif hr_conf <= 2.0:
-                hr_R_dyn = self.hr_kalman.R * 12.0
-            else:
-                # Smooth interpolation between factors 12.0 and 0.15
-                t = (hr_conf - 2.0) / 3.0
-                hr_R_dyn = self.hr_kalman.R * (12.0 - 11.85 * t)
+            # Dynamic measurement noise scaling based on inverse-square confidence (PAR)
+            # High PAR (clear peak) -> small R (rely heavily on new measurement)
+            # Low PAR (noisy/flat) -> large R (rely heavily on history/model)
+            norm_conf = max(1.5, min(8.0, hr_conf))  # Bound confidence
+            hr_R_scale = (4.0 / norm_conf) ** 2  # Reference target PAR of 4.0
+            hr_R_dyn = self.hr_kalman.R * hr_R_scale
 
             median_hr = self.hr_median.update(hr_raw)
             smoothed_hr = self.hr_kalman.update(median_hr, R_dynamic=hr_R_dyn)
@@ -118,13 +126,12 @@ class VitalSignStabilizer:
         else:
             smoothed_hr = self.last_valid_hr if self.last_valid_hr is not None else hr_raw
 
-        # 2. Process Breathing Rate with breathing_deviation quality adaptation
+        # 2. Process Breathing Rate
         if br_valid:
-            # High breathing deviation indicates possible micro-motions or irregular breathing.
-            # Scale br_R up if deviation is high to smooth out sudden irregular breathing spikes.
-            # Normal deviation values are typically < 0.1
+            # Scale breathing R up if deviation is high (indicating movement or irregularities)
+            # Normal deviation values are typically < 0.15
             if br_deviation > 0.15:
-                br_R_dyn = self.br_kalman.R * 5.0
+                br_R_dyn = self.br_kalman.R * 4.0
             else:
                 br_R_dyn = self.br_kalman.R
 
