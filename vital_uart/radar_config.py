@@ -105,13 +105,44 @@ def send_cfg_commands(
                 print(response.strip())
 
 
+def hardware_reset(cli_port: str, verbose: bool = True) -> None:
+    """
+    Perform programmatic hardware reset via RTS/DTR toggling on the CLI port.
+    This avoids the need to press the physical RST button on the board.
+    """
+    if verbose:
+        print(f"[RESET] Toggling RTS/DTR on {cli_port} to hardware-reset the device...")
+    try:
+        with serial.Serial(cli_port, baudrate=115200, timeout=0.5) as ser:
+            # Set RTS and DTR active (low NRST reset on TI EVM)
+            ser.rts = True
+            ser.dtr = True
+            time.sleep(0.25)
+            # De-assert RTS and DTR (NRST high, letting device boot)
+            ser.rts = False
+            ser.dtr = False
+            # Wait for bootloader & application startup
+            time.sleep(1.5)
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
+        if verbose:
+            print("[RESET] Hardware reset completed successfully.")
+    except Exception as e:
+        if verbose:
+            print(f"[RESET] Warning: Failed to hardware reset on {cli_port}: {e}")
+
+
 def send_cfg_file(
     cli_port: str,
     cfg_path: str | Path,
     baudrate: int = 115200,
     verbose: bool = True,
+    reset_device: bool = False,
 ) -> Path:
-    """Find, load, and send a cfg file to the radar."""
+    """Find, load, and send a cfg file to the radar, optionally resetting it first."""
+    if reset_device:
+        hardware_reset(cli_port, verbose=verbose)
+
     cfg_file = find_cfg_file(cfg_path)
     commands = load_cfg_commands(cfg_file)
 

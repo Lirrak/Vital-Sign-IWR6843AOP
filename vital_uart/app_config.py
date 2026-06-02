@@ -47,6 +47,15 @@ DATA_BAUD = 921600
 # False = do not send config; only listen to DATA port.
 SEND_CONFIG_ON_START = True
 
+# True  = toggle RTS/DTR on CLI port to perform hardware reset before sending config,
+#         avoiding the need to manually press the RST button.
+HARDWARE_RESET_ON_START = True
+
+# True  = run in auto-detect daemon mode in CLI mode. The script will wait for the radar
+#         to be plugged in, then automatically reset, configure, and start collecting data.
+#         It will also handle unplugging gracefully and resume waiting.
+AUTO_DETECT_DAEMON = False
+
 # 0 = record until Ctrl+C.
 # Example: 120 = record for 120 seconds.
 DURATION_SECONDS = 0.0

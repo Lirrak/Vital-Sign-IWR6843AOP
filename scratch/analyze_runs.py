@@ -120,5 +120,11 @@ def main():
     if os.path.exists(v_151115):
         analyze_session(v_151115, t_151115)
 
+    # Session 155208 (Newest Run)
+    v_155208 = os.path.join(logs_dir, "vital_20260602_155208.csv")
+    t_155208 = os.path.join(logs_dir, "tlv_summary_20260602_155208.csv")
+    if os.path.exists(v_155208):
+        analyze_session(v_155208, t_155208)
+
 if __name__ == '__main__':
     main()

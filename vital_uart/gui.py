@@ -27,6 +27,7 @@ from .app_config import (
     OUT_DIR,
     READ_SIZE,
     SEND_CONFIG_ON_START,
+    HARDWARE_RESET_ON_START,
 )
 from .csv_logger import VitalCsvLogger
 from .mmwave_parser import MmWaveFrameParser, VitalSignData
@@ -76,12 +77,14 @@ class SerialWorker(threading.Thread):
         try:
             # 1. Send Configuration if enabled
             if self.send_cfg:
+                self.log_queue.put(f"[RESET] Performing hardware reset on {self.cli_port}...")
                 self.log_queue.put(f"[CFG] Connecting to CLI {self.cli_port}...")
                 cfg_file = send_cfg_file(
                     cli_port=self.cli_port,
                     cfg_path=self.cfg_path,
                     baudrate=self.cli_baud,
                     verbose=False,
+                    reset_device=HARDWARE_RESET_ON_START,
                 )
                 self.log_queue.put(f"[OK] Configuration successfully sent: {cfg_file.name}")
                 self.log_queue.put("[INFO] Waiting 1.5s for sensor to initialize...")
